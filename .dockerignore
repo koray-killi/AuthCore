@@ -1,0 +1,15 @@
+.env
+.git
+.github
+.gitignore
+bin/
+*.log
+*.md
+!README.md
+docs/
+.DS_Store
+.idea/
+.vscode/
+tmp/
+coverage.html
+*.out
