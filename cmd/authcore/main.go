@@ -67,6 +67,8 @@ func main() {
 		cfg.RateLimit.IPWindow,
 		cfg.RateLimit.AccountRequests,
 		cfg.RateLimit.AccountWindow,
+		cfg.RateLimit.EmailRequests,
+		cfg.RateLimit.EmailWindow,
 	)
 
 	// Build router.
