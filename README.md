@@ -68,14 +68,15 @@ These aren't just documented — they're enforced by the layer boundaries:
 | Passwords & OTPs stored as Argon2id hashes | `golang.org/x/crypto/argon2` |
 | Refresh tokens stored as SHA-256 hashes | Raw token never touches the database |
 | Refresh token rotation with reuse detection | Revoked token replay → revoke **all** sessions + audit log |
-| Enumeration-safe login | Dummy Argon2id verify run for non-existent users |
+| Enumeration-safe login & resend | Dummy Argon2id verify for non-existent users; resend always returns 202 |
 | Account lockout after 5 failed logins | 15-minute lock via `locked_until` column |
-| OTP: 6-digit, 10-min TTL, 5 attempts, single-use | Enforced in `OTPService.Validate` |
+| OTP: 6-digit, 10-min TTL, 5 attempts, single-use | Enforced in `OTPService.Validate`; invalidated on resend |
 | User ID always from JWT claim, never request body | Enforced by JWT middleware → context |
 | Domain structs never serialized directly | Explicit response DTOs for every endpoint |
 | Audit log is append-only | No UPDATE/DELETE on `AuditRepository` interface |
 | Config injected, no global mutable state | `config.Config` passed through all constructors |
-| Two-tier rate limiter (IP + account) | In-memory sliding window behind `RateLimiter` interface |
+| Three-tier rate limiter (IP + account + email) | In-memory sliding window behind `RateLimiter` interface |
+| Email format validated before processing | RFC-5322 regex in `middleware.ValidateEmail()` |
 
 ---
 
@@ -134,10 +135,12 @@ make run
 | `SMTP_PORT` | `1025` | | |
 | `SMTP_FROM` | `noreply@authcore.local` | | |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` | | Comma-separated |
-| `RATE_LIMIT_IP_REQUESTS` | `60` | | Requests per IP per window |
-| `RATE_LIMIT_IP_WINDOW` | `1m` | | |
-| `RATE_LIMIT_ACCOUNT_REQUESTS` | `10` | | Requests per account per window |
-| `RATE_LIMIT_ACCOUNT_WINDOW` | `1m` | | |
+| `RATE_LIMIT_IP_REQUESTS` | `60` | | Max requests per IP per window |
+| `RATE_LIMIT_IP_WINDOW` | `1m` | | IP rate limit window |
+| `RATE_LIMIT_ACCOUNT_REQUESTS` | `10` | | Max login attempts per email per window |
+| `RATE_LIMIT_ACCOUNT_WINDOW` | `1m` | | Account rate limit window |
+| `RATE_LIMIT_EMAIL_REQUESTS` | `3` | | Max email-sending actions per address per window |
+| `RATE_LIMIT_EMAIL_WINDOW` | `10m` | | Email rate limit window (register, resend, forgot-password) |
 
 ---
 
@@ -146,8 +149,9 @@ make run
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `GET` | `/healthz` | Public | Health check with DB ping |
-| `POST` | `/api/v1/auth/register` | Public | Register; sends email verification OTP |
+| `POST` | `/api/v1/auth/register` | Public | Register; sends email verification OTP. Re-sends OTP if account is inactive. |
 | `POST` | `/api/v1/auth/verify-email` | Public | Confirm OTP, activate account |
+| `POST` | `/api/v1/auth/resend-verification` | Public | Request a fresh OTP; always returns 202 (enumeration-safe) |
 | `POST` | `/api/v1/auth/login` | Public | Returns access token + sets refresh cookie |
 | `POST` | `/api/v1/auth/refresh` | Cookie | Rotates refresh token |
 | `POST` | `/api/v1/auth/logout` | Bearer | Revokes current session |
@@ -173,7 +177,7 @@ curl -s -X POST "$BASE/auth/register" \
 
 # Grab the OTP from MailHog
 OTP=$(curl -s http://localhost:8025/api/v2/messages \
-  | jq -r '.items[0].Content.Body' | grep -oP '\d{6}')
+  | python3 -c "import sys,json,re; d=json.load(sys.stdin); [print(m.group(1)) for i in d['items'] for m in [re.search(r'\\b([0-9]{6})\\b', i['Content']['Body'])] if m]" | head -1)
 
 # Verify email
 curl -s -X POST "$BASE/auth/verify-email" \
@@ -184,13 +188,18 @@ curl -s -X POST "$BASE/auth/verify-email" \
 ACCESS=$(curl -s -X POST "$BASE/auth/login" \
   -H "Content-Type: application/json" \
   -d '{"email":"you@example.com","password":"supersecure1"}' \
-  -c cookies.txt | jq -r '.access_token')
+  -c cookies.txt | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
 # Get your profile
 curl -s "$BASE/auth/me" -H "Authorization: Bearer $ACCESS" | jq
 
 # Rotate the refresh token
 curl -s -X POST "$BASE/auth/refresh" -b cookies.txt -c cookies.txt | jq
+
+# Forgot your OTP limit? Request a new one
+curl -s -X POST "$BASE/auth/resend-verification" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com"}' | jq
 
 # Logout
 curl -s -X POST "$BASE/auth/logout" \
