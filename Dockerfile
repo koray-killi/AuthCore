@@ -18,7 +18,10 @@ RUN apk add --no-cache ca-certificates tzdata \
  && adduser -D -u 1001 authcore
 
 COPY --from=builder /bin/authcore /usr/local/bin/authcore
-COPY migrations/ /app/migrations/
+
+# Create /app and transfer ownership before switching to non-root user.
+RUN mkdir -p /app && chown authcore:authcore /app
+COPY --from=builder /src/migrations/ /app/migrations/
 
 WORKDIR /app
 
