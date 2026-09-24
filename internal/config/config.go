@@ -59,7 +59,9 @@ type RateLimitConfig struct {
 // Load reads configuration from environment variables with sensible defaults.
 func Load() (*Config, error) {
 	cfg := &Config{
-		ServerPort:            getEnvInt("SERVER_PORT", 8080),
+		// SERVER_PORT is the primary var; fall back to PORT so Railway/Fly.io work
+		// without extra configuration (they inject PORT automatically).
+		ServerPort:            getEnvIntFallback("SERVER_PORT", "PORT", 8080),
 		ServerReadTimeout:     getEnvDuration("SERVER_READ_TIMEOUT", 10*time.Second),
 		ServerWriteTimeout:    getEnvDuration("SERVER_WRITE_TIMEOUT", 10*time.Second),
 		ServerShutdownTimeout: getEnvDuration("SERVER_SHUTDOWN_TIMEOUT", 15*time.Second),
@@ -119,6 +121,17 @@ func getEnvInt(key string, fallback int) int {
 		return fallback
 	}
 	return n
+}
+
+// getEnvIntFallback tries primary, then secondary, then the int fallback.
+// Used for port resolution: SERVER_PORT > PORT > 8080.
+func getEnvIntFallback(primary, secondary string, fallback int) int {
+	if v, ok := os.LookupEnv(primary); ok && v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return getEnvInt(secondary, fallback)
 }
 
 func getEnvDuration(key string, fallback time.Duration) time.Duration {
