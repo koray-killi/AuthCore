@@ -8,7 +8,7 @@ import (
 )
 
 func TestRateLimiter_AllowsUnderLimit(t *testing.T) {
-	rl := NewInMemoryRateLimiter(5, 1*time.Minute, 3, 1*time.Minute)
+	rl := NewInMemoryRateLimiter(5, 1*time.Minute, 3, 1*time.Minute, 3, 10*time.Minute)
 
 	for i := 0; i < 5; i++ {
 		allowed, _ := rl.AllowIP("127.0.0.1")
@@ -19,7 +19,7 @@ func TestRateLimiter_AllowsUnderLimit(t *testing.T) {
 }
 
 func TestRateLimiter_BlocksOverLimit(t *testing.T) {
-	rl := NewInMemoryRateLimiter(3, 1*time.Minute, 3, 1*time.Minute)
+	rl := NewInMemoryRateLimiter(3, 1*time.Minute, 3, 1*time.Minute, 3, 10*time.Minute)
 
 	for i := 0; i < 3; i++ {
 		rl.AllowIP("127.0.0.1")
@@ -35,7 +35,7 @@ func TestRateLimiter_BlocksOverLimit(t *testing.T) {
 }
 
 func TestRateLimiter_DifferentIPsIndependent(t *testing.T) {
-	rl := NewInMemoryRateLimiter(2, 1*time.Minute, 2, 1*time.Minute)
+	rl := NewInMemoryRateLimiter(2, 1*time.Minute, 2, 1*time.Minute, 3, 10*time.Minute)
 
 	rl.AllowIP("1.1.1.1")
 	rl.AllowIP("1.1.1.1")
@@ -54,7 +54,7 @@ func TestRateLimiter_DifferentIPsIndependent(t *testing.T) {
 }
 
 func TestRateLimiter_AccountLimit(t *testing.T) {
-	rl := NewInMemoryRateLimiter(100, 1*time.Minute, 2, 1*time.Minute)
+	rl := NewInMemoryRateLimiter(100, 1*time.Minute, 2, 1*time.Minute, 3, 10*time.Minute)
 
 	rl.AllowAccount("user@example.com")
 	rl.AllowAccount("user@example.com")
@@ -66,7 +66,7 @@ func TestRateLimiter_AccountLimit(t *testing.T) {
 }
 
 func TestRateLimitMiddleware_Returns429(t *testing.T) {
-	rl := NewInMemoryRateLimiter(1, 1*time.Minute, 1, 1*time.Minute)
+	rl := NewInMemoryRateLimiter(1, 1*time.Minute, 1, 1*time.Minute, 1, 10*time.Minute)
 
 	handler := RateLimit(rl)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -126,5 +126,32 @@ func TestExtractIP(t *testing.T) {
 				t.Errorf("expected %q, got %q", tt.expected, ip)
 			}
 		})
+	}
+}
+
+func TestRateLimiter_EmailLimit(t *testing.T) {
+	rl := NewInMemoryRateLimiter(100, 1*time.Minute, 100, 1*time.Minute, 2, 10*time.Minute)
+
+	// First two allowed.
+	for i := 0; i < 2; i++ {
+		allowed, _ := rl.AllowEmail("bomb@example.com")
+		if !allowed {
+			t.Errorf("request %d should be allowed", i+1)
+		}
+	}
+
+	// Third should be blocked.
+	allowed, retryAfter := rl.AllowEmail("bomb@example.com")
+	if allowed {
+		t.Error("3rd email request should be blocked")
+	}
+	if retryAfter <= 0 {
+		t.Error("retryAfter should be positive")
+	}
+
+	// Different email should be independent.
+	allowed, _ = rl.AllowEmail("other@example.com")
+	if !allowed {
+		t.Error("different email should not be blocked")
 	}
 }

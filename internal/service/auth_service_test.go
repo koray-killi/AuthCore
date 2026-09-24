@@ -73,10 +73,13 @@ func TestRegister_WeakPassword(t *testing.T) {
 }
 
 func TestRegister_DuplicateEmail(t *testing.T) {
-	authSvc, _, _, _, _, _ := newTestAuthService()
+	authSvc, _, _, _, _, ml := newTestAuthService()
 	ctx := context.Background()
 
 	_ = authSvc.Register(ctx, "user@example.com", "securepassword1", "127.0.0.1", "test-agent")
+	code := ml.GetLastCode()
+	_ = authSvc.VerifyEmail(ctx, "user@example.com", code, "127.0.0.1", "test-agent")
+
 	err := authSvc.Register(ctx, "user@example.com", "securepassword2", "127.0.0.1", "test-agent")
 	if !errors.Is(err, domain.ErrEmailAlreadyExists) {
 		t.Errorf("expected ErrEmailAlreadyExists, got %v", err)
@@ -396,5 +399,57 @@ func TestLogoutAll(t *testing.T) {
 	_, err = authSvc.RefreshToken(ctx, pair2.RefreshToken, "test-agent", "127.0.0.1")
 	if !errors.Is(err, domain.ErrTokenRevoked) {
 		t.Errorf("pair2 should be revoked, got %v", err)
+	}
+}
+
+func TestResendVerification_AfterMaxAttempts(t *testing.T) {
+	authSvc, _, _, _, _, ml := newTestAuthService()
+	ctx := context.Background()
+
+	_ = authSvc.Register(ctx, "user@example.com", "securepassword1", "127.0.0.1", "agent")
+	oldCode := ml.GetLastCode()
+
+	for i := 0; i < 5; i++ {
+		_ = authSvc.VerifyEmail(ctx, "user@example.com", "000000", "127.0.0.1", "agent")
+	}
+
+	err := authSvc.VerifyEmail(ctx, "user@example.com", oldCode, "127.0.0.1", "agent")
+	if !errors.Is(err, domain.ErrOTPMaxAttempts) {
+		t.Errorf("expected ErrOTPMaxAttempts, got %v", err)
+	}
+
+	authSvc.ResendVerification(ctx, "user@example.com", "127.0.0.1", "agent")
+	newCode := ml.GetLastCode()
+
+	if oldCode == newCode {
+		t.Error("new OTP should be different from old OTP")
+	}
+
+	err = authSvc.VerifyEmail(ctx, "user@example.com", newCode, "127.0.0.1", "agent")
+	if err != nil {
+		t.Fatalf("VerifyEmail with new OTP failed: %v", err)
+	}
+}
+
+func TestRegister_InactiveUserGetsNewOTP(t *testing.T) {
+	authSvc, _, _, _, _, ml := newTestAuthService()
+	ctx := context.Background()
+
+	_ = authSvc.Register(ctx, "user@example.com", "securepassword1", "127.0.0.1", "agent")
+	firstCode := ml.GetLastCode()
+
+	err := authSvc.Register(ctx, "user@example.com", "securepassword1", "127.0.0.1", "agent")
+	if err != nil {
+		t.Fatalf("Re-register inactive user should succeed, got: %v", err)
+	}
+	secondCode := ml.GetLastCode()
+
+	if firstCode == secondCode {
+		t.Error("second register should produce new OTP")
+	}
+
+	err = authSvc.VerifyEmail(ctx, "user@example.com", secondCode, "127.0.0.1", "agent")
+	if err != nil {
+		t.Fatalf("VerifyEmail failed: %v", err)
 	}
 }

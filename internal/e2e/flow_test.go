@@ -96,6 +96,8 @@ func TestE2E_FullAuthenticationFlow(t *testing.T) {
 		cfg.RateLimit.IPWindow,
 		cfg.RateLimit.AccountRequests,
 		cfg.RateLimit.AccountWindow,
+		cfg.RateLimit.EmailRequests,
+		cfg.RateLimit.EmailWindow,
 	)
 
 	// Router

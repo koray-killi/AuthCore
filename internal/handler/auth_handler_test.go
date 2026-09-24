@@ -51,6 +51,8 @@ func testRouter() (http.Handler, *service.FakeMailer) {
 		cfg.RateLimit.IPWindow,
 		cfg.RateLimit.AccountRequests,
 		cfg.RateLimit.AccountWindow,
+		1000, // High limit so handler tests don't hit email rate limit.
+		1*time.Minute,
 	)
 
 	logger, _ := zap.NewDevelopment()
@@ -149,13 +151,22 @@ func TestHandler_Register(t *testing.T) {
 }
 
 func TestHandler_RegisterDuplicate(t *testing.T) {
-	router, _ := testRouter()
+	router, ml := testRouter()
 
 	rec1 := postJSON(router, "/api/v1/auth/register", RegisterRequest{
 		Email: "user@example.com", Password: "securepassword1",
 	})
 	if rec1.Code != http.StatusCreated {
 		t.Fatalf("first register: status = %d, want 201", rec1.Code)
+	}
+
+	// Verify the email so the account is active.
+	code := ml.GetLastCode()
+	recVerify := postJSON(router, "/api/v1/auth/verify-email", VerifyEmailRequest{
+		Email: "user@example.com", Code: code,
+	})
+	if recVerify.Code != http.StatusOK {
+		t.Fatalf("verify: status = %d", recVerify.Code)
 	}
 
 	rec2 := postJSON(router, "/api/v1/auth/register", RegisterRequest{
@@ -296,7 +307,7 @@ func TestHandler_ForgotPassword_AlwaysReturns202(t *testing.T) {
 func TestHandler_SecurityHeaders(t *testing.T) {
 	router, _ := testRouter()
 
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest("GET", "/api/v1/auth/me", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
