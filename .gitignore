@@ -12,26 +12,33 @@ bin/
 # Output of the go coverage tool
 *.out
 coverage.html
+coverage.out
 
-# Environment
+# Environment — never commit real secrets
 .env
 
 # Logs
 *.log
 
-# IDE
+# IDE / editor
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 
+# AI tool local configs — not part of the project
+.claude/
+.cursor/
+
 # macOS
 .DS_Store
 
 # Temporary
 tmp/
-coverage.out
+
+# Personal development artifacts — not part of the public project
 prompt.md
 vision.md
 rewrite_history.sh
+
