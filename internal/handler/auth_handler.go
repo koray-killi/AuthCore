@@ -40,8 +40,12 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
-	if req.Email == "" || req.Password == "" {
+	if req.Password == "" {
 		middleware.HandleError(w, domain.ErrBadRequest)
+		return
+	}
+	if err := middleware.ValidateEmail(req.Email); err != nil {
+		middleware.HandleError(w, err)
 		return
 	}
 
@@ -67,8 +71,12 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
-	if req.Email == "" || req.Code == "" {
+	if req.Code == "" {
 		middleware.HandleError(w, domain.ErrBadRequest)
+		return
+	}
+	if err := middleware.ValidateEmail(req.Email); err != nil {
+		middleware.HandleError(w, err)
 		return
 	}
 
@@ -85,6 +93,32 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ResendVerification handles POST /auth/resend-verification.
+// Always returns 202 Accepted to prevent user enumeration.
+func (h *AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	var req ResendVerificationRequest
+	if err := middleware.DecodeJSON(r, &req); err != nil {
+		middleware.HandleError(w, err)
+		return
+	}
+
+	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
+	if err := middleware.ValidateEmail(req.Email); err != nil {
+		middleware.HandleError(w, err)
+		return
+	}
+
+	ip := middleware.ExtractIP(r)
+	ua := r.UserAgent()
+
+	// Fire-and-forget — always return 202 regardless of outcome.
+	h.authSvc.ResendVerification(r.Context(), req.Email, ip, ua)
+
+	middleware.WriteJSON(w, http.StatusAccepted, MessageResponse{
+		Message: "If your account is pending verification, a new code has been sent.",
+	})
+}
+
 // Login handles POST /auth/login.
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
@@ -94,8 +128,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
-	if req.Email == "" || req.Password == "" {
+	if req.Password == "" {
 		middleware.HandleError(w, domain.ErrBadRequest)
+		return
+	}
+	if err := middleware.ValidateEmail(req.Email); err != nil {
+		middleware.HandleError(w, err)
 		return
 	}
 
@@ -201,8 +239,8 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
-	if req.Email == "" {
-		middleware.HandleError(w, domain.ErrBadRequest)
+	if err := middleware.ValidateEmail(req.Email); err != nil {
+		middleware.HandleError(w, err)
 		return
 	}
 
@@ -226,8 +264,12 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.Email = strings.TrimSpace(strings.ToLower(req.Email))
-	if req.Email == "" || req.Code == "" || req.NewPassword == "" {
+	if req.Code == "" || req.NewPassword == "" {
 		middleware.HandleError(w, domain.ErrBadRequest)
+		return
+	}
+	if err := middleware.ValidateEmail(req.Email); err != nil {
+		middleware.HandleError(w, err)
 		return
 	}
 

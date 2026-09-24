@@ -26,6 +26,11 @@ type VerifyEmailRequest struct {
 	Code  string `json:"code"`
 }
 
+// ResendVerificationRequest is the request body for POST /auth/resend-verification.
+type ResendVerificationRequest struct {
+	Email string `json:"email"`
+}
+
 // ForgotPasswordRequest is the request body for POST /auth/forgot-password.
 type ForgotPasswordRequest struct {
 	Email string `json:"email"`

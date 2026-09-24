@@ -48,11 +48,20 @@ func NewAuthService(
 	}
 }
 
-// Register creates a new user account with an Argon2id-hashed password and sends
-// a verification OTP via email. The account is inactive until email verification.
+// Register creates a new user account or sends a new OTP for an inactive one.
+// The account is inactive until email verification.
 func (s *AuthService) Register(ctx context.Context, email, password, ip, userAgent string) error {
 	if err := ValidatePasswordStrength(password); err != nil {
 		return err
+	}
+
+	// Check if user already exists.
+	if existing, err := s.userRepo.GetByEmail(ctx, email); err == nil {
+		if existing.IsActive {
+			return domain.ErrEmailAlreadyExists
+		}
+		// User exists but inactive. Resend OTP.
+		return s.sendVerificationOTP(ctx, existing, ip, userAgent)
 	}
 
 	hash, err := HashPassword(password)
@@ -75,14 +84,19 @@ func (s *AuthService) Register(ctx context.Context, email, password, ip, userAge
 		return err
 	}
 
-	// Generate and send verification OTP.
+	return s.sendVerificationOTP(ctx, user, ip, userAgent)
+}
+
+// sendVerificationOTP invalidates pending OTPs, generates a new one, and sends the email.
+func (s *AuthService) sendVerificationOTP(ctx context.Context, user *domain.User, ip, userAgent string) error {
+	_ = s.otpSvc.InvalidatePending(ctx, user.ID, domain.OTPPurposeVerifyEmail)
+
 	code, err := s.otpSvc.Generate(ctx, user.ID, domain.OTPPurposeVerifyEmail)
 	if err != nil {
 		return fmt.Errorf("generate verification otp: %w", err)
 	}
 
-	if err := s.mailer.SendVerificationEmail(email, code); err != nil {
-		// Log but don't fail registration — user can request a new OTP.
+	if err := s.mailer.SendVerificationEmail(user.Email, code); err != nil {
 		s.auditSvc.Log(ctx, "email_send_failed", &user.ID, ip, userAgent, map[string]interface{}{
 			"purpose": "verify_email",
 			"error":   err.Error(),
@@ -91,6 +105,21 @@ func (s *AuthService) Register(ctx context.Context, email, password, ip, userAge
 
 	s.auditSvc.Log(ctx, domain.AuditActionRegister, &user.ID, ip, userAgent, nil)
 	return nil
+}
+
+// ResendVerification sends a new verification OTP.
+// Returns silently if user is active or not found (enumeration safe).
+func (s *AuthService) ResendVerification(ctx context.Context, email, ip, userAgent string) {
+	user, err := s.userRepo.GetByEmail(ctx, email)
+	if err != nil {
+		return
+	}
+	if user.IsActive {
+		return
+	}
+
+	_ = s.sendVerificationOTP(ctx, user, ip, userAgent)
+	s.auditSvc.Log(ctx, "resend_verification", &user.ID, ip, userAgent, nil)
 }
 
 // VerifyEmail validates the OTP code and activates the user account.

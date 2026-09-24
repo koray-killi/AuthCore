@@ -16,6 +16,7 @@ type OTPRepository interface {
 	GetLatestValid(ctx context.Context, userID uuid.UUID, purpose string) (*domain.OTPCode, error)
 	IncrementAttempt(ctx context.Context, id uuid.UUID) error
 	Consume(ctx context.Context, id uuid.UUID) error
+	InvalidatePending(ctx context.Context, userID uuid.UUID, purpose string) error
 }
 
 type pgxOTPRepo struct {
@@ -70,5 +71,11 @@ func (r *pgxOTPRepo) IncrementAttempt(ctx context.Context, id uuid.UUID) error {
 func (r *pgxOTPRepo) Consume(ctx context.Context, id uuid.UUID) error {
 	query := `UPDATE otp_codes SET consumed_at = NOW() WHERE id = $1`
 	_, err := r.pool.Exec(ctx, query, id)
+	return err
+}
+
+func (r *pgxOTPRepo) InvalidatePending(ctx context.Context, userID uuid.UUID, purpose string) error {
+	query := `UPDATE otp_codes SET expires_at = NOW() WHERE user_id = $1 AND purpose = $2 AND consumed_at IS NULL`
+	_, err := r.pool.Exec(ctx, query, userID, purpose)
 	return err
 }

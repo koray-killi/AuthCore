@@ -103,6 +103,11 @@ func (s *OTPService) Validate(ctx context.Context, userID uuid.UUID, purpose, co
 	return nil
 }
 
+// InvalidatePending expires all unconsumed OTPs for a user and purpose.
+func (s *OTPService) InvalidatePending(ctx context.Context, userID uuid.UUID, purpose string) error {
+	return s.repo.InvalidatePending(ctx, userID, purpose)
+}
+
 // generateSecureCode produces a cryptographically secure numeric code of the given length.
 func generateSecureCode(length int) (string, error) {
 	max := new(big.Int)

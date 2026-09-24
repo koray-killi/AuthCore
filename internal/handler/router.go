@@ -54,11 +54,18 @@ func NewRouter(
 
 		// Public auth routes.
 		r.Route("/auth", func(r chi.Router) {
-			r.Post("/register", authH.Register)
+			// Email-sending endpoints: strict per-email rate limit to prevent email bombing.
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.EmailRateLimit(rateLimiter))
+				r.Post("/register", authH.Register)
+				r.Post("/resend-verification", authH.ResendVerification)
+				r.Post("/forgot-password", authH.ForgotPassword)
+			})
+
 			r.Post("/verify-email", authH.VerifyEmail)
-			r.Post("/login", authH.Login)
+			// Login: per-account rate limit prevents credential-stuffing across shared IPs.
+			r.With(middleware.AccountRateLimit(rateLimiter)).Post("/login", authH.Login)
 			r.Post("/refresh", authH.Refresh)
-			r.Post("/forgot-password", authH.ForgotPassword)
 			r.Post("/reset-password", authH.ResetPassword)
 
 			// Protected auth routes (require valid JWT).

@@ -253,6 +253,19 @@ func (r *FakeOTPRepo) Consume(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (r *FakeOTPRepo) InvalidatePending(_ context.Context, userID uuid.UUID, purpose string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	for _, o := range r.otps {
+		if o.UserID == userID && o.Purpose == purpose && o.ConsumedAt == nil {
+			now := time.Now()
+			o.ExpiresAt = now
+		}
+	}
+	return nil
+}
+
 // FakeAuditRepo is an in-memory AuditRepository for testing.
 type FakeAuditRepo struct {
 	mu   sync.RWMutex
