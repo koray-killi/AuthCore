@@ -33,3 +33,5 @@ coverage.html
 tmp/
 coverage.out
 prompt.md
+vision.md
+rewrite_history.sh
