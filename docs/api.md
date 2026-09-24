@@ -128,6 +128,26 @@ Verify email address using the OTP code sent during registration.
 
 ---
 
+### POST /api/v1/auth/resend-verification
+
+Request a new email verification OTP. Always returns 202 regardless of whether the email exists or is already active (enumeration safety).
+
+**Request:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response (202 Accepted):**
+```json
+{
+  "message": "If your account is pending verification, a new code has been sent."
+}
+```
+
+---
+
 ### POST /api/v1/auth/login
 
 Authenticate with email and password. Returns an access token in the body and sets a refresh token as an httpOnly cookie.
