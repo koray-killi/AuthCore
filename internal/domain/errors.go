@@ -101,6 +101,11 @@ var (
 		Message:    "Invalid request body.",
 		HTTPStatus: http.StatusBadRequest,
 	}
+	ErrInvalidEmail = &AppError{
+		Code:       "INVALID_EMAIL",
+		Message:    "Invalid email address format.",
+		HTTPStatus: http.StatusBadRequest,
+	}
 	ErrInternal = &AppError{
 		Code:       "INTERNAL_ERROR",
 		Message:    "An internal error occurred.",

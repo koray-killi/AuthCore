@@ -50,6 +50,10 @@ type RateLimitConfig struct {
 	IPWindow        time.Duration
 	AccountRequests int
 	AccountWindow   time.Duration
+	// EmailRequests limits how many email-sending actions (register, resend) are allowed
+	// per email address in EmailWindow. Prevents email bombing.
+	EmailRequests int
+	EmailWindow   time.Duration
 }
 
 // Load reads configuration from environment variables with sensible defaults.
@@ -83,6 +87,8 @@ func Load() (*Config, error) {
 			IPWindow:        getEnvDuration("RATE_LIMIT_IP_WINDOW", 1*time.Minute),
 			AccountRequests: getEnvInt("RATE_LIMIT_ACCOUNT_REQUESTS", 10),
 			AccountWindow:   getEnvDuration("RATE_LIMIT_ACCOUNT_WINDOW", 1*time.Minute),
+			EmailRequests:   getEnvInt("RATE_LIMIT_EMAIL_REQUESTS", 3),
+			EmailWindow:     getEnvDuration("RATE_LIMIT_EMAIL_WINDOW", 10*time.Minute),
 		},
 	}
 

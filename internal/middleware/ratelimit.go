@@ -1,8 +1,12 @@
 package middleware
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +21,10 @@ type RateLimiter interface {
 	AllowIP(ip string) (bool, time.Duration)
 	// AllowAccount checks if a request for the given account key is allowed.
 	AllowAccount(key string) (bool, time.Duration)
+	// AllowEmail checks whether an email-sending action for the given email is allowed.
+	// This enforces a strict per-email limit on register and resend-verification to
+	// prevent email bombing.
+	AllowEmail(email string) (bool, time.Duration)
 }
 
 // slidingWindowEntry tracks requests in a sliding time window.
@@ -29,19 +37,24 @@ type slidingWindowEntry struct {
 type inMemoryRateLimiter struct {
 	ipEntries      sync.Map
 	accountEntries sync.Map
+	emailEntries   sync.Map
 	ipMax          int
 	ipWindow       time.Duration
 	accountMax     int
 	accountWindow  time.Duration
+	emailMax       int
+	emailWindow    time.Duration
 }
 
 // NewInMemoryRateLimiter creates a new in-memory rate limiter.
-func NewInMemoryRateLimiter(ipMax int, ipWindow time.Duration, accountMax int, accountWindow time.Duration) RateLimiter {
+func NewInMemoryRateLimiter(ipMax int, ipWindow time.Duration, accountMax int, accountWindow time.Duration, emailMax int, emailWindow time.Duration) RateLimiter {
 	rl := &inMemoryRateLimiter{
 		ipMax:         ipMax,
 		ipWindow:      ipWindow,
 		accountMax:    accountMax,
 		accountWindow: accountWindow,
+		emailMax:      emailMax,
+		emailWindow:   emailWindow,
 	}
 
 	// Background cleanup goroutine to prevent memory leak from expired entries.
@@ -56,6 +69,10 @@ func (rl *inMemoryRateLimiter) AllowIP(ip string) (bool, time.Duration) {
 
 func (rl *inMemoryRateLimiter) AllowAccount(key string) (bool, time.Duration) {
 	return rl.allow(&rl.accountEntries, key, rl.accountMax, rl.accountWindow)
+}
+
+func (rl *inMemoryRateLimiter) AllowEmail(email string) (bool, time.Duration) {
+	return rl.allow(&rl.emailEntries, email, rl.emailMax, rl.emailWindow)
 }
 
 func (rl *inMemoryRateLimiter) allow(entries *sync.Map, key string, max int, window time.Duration) (bool, time.Duration) {
@@ -119,6 +136,7 @@ func (rl *inMemoryRateLimiter) cleanup() {
 		}
 		cleanMap(&rl.ipEntries, rl.ipWindow)
 		cleanMap(&rl.accountEntries, rl.accountWindow)
+		cleanMap(&rl.emailEntries, rl.emailWindow)
 	}
 }
 
@@ -164,4 +182,59 @@ func ExtractIP(r *http.Request) string {
 		}
 	}
 	return addr
+}
+
+// EmailRateLimit creates an HTTP middleware that enforces a strict per-email rate limit
+// on email-sending endpoints (register, resend-verification). It reads the "email" field
+// from the JSON body, re-encodes it for the next handler, and blocks if the limit is exceeded.
+// If the email field is missing or empty, the request is passed through (field validation
+// is the responsibility of the handler).
+func EmailRateLimit(limiter RateLimiter) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Peek at the body to read the email field without consuming it.
+			body, err := peekBody(r)
+			if err != nil || body == nil {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			var payload struct {
+				Email string `json:"email"`
+			}
+			// Best-effort decode — if it fails, pass through.
+			_ = json.NewDecoder(bytes.NewReader(body)).Decode(&payload)
+
+			email := strings.TrimSpace(strings.ToLower(payload.Email))
+			if email == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			allowed, retryAfter := limiter.AllowEmail(email)
+			if !allowed {
+				w.Header().Set("Retry-After", fmt.Sprintf("%.0f", retryAfter.Seconds()))
+				httperr.Write(w, domain.ErrRateLimited)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// peekBody reads the full request body and resets r.Body so downstream handlers can
+// read it again. Returns nil if the body is empty or exceeds 1 MB.
+func peekBody(r *http.Request) ([]byte, error) {
+	if r.Body == nil {
+		return nil, nil
+	}
+	const maxPeek = 1 << 20 // 1 MiB — consistent with BodyLimit middleware
+	b, err := io.ReadAll(io.LimitReader(r.Body, maxPeek))
+	_ = r.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+	r.Body = io.NopCloser(bytes.NewReader(b))
+	return b, nil
 }
