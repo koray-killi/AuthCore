@@ -8,6 +8,24 @@ A production-discipline authentication and session management microservice writt
 
 ---
 
+## Live Demo
+
+The service is deployed on Railway:
+
+**Base URL:** `https://authcore-production-d9ce.up.railway.app`
+
+```bash
+# Health check
+curl -s https://authcore-production-d9ce.up.railway.app/healthz | python3 -m json.tool
+
+# Register a test account
+curl -s -X POST https://authcore-production-d9ce.up.railway.app/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"SecurePass123"}' | python3 -m json.tool
+```
+
+---
+
 ## Why I Built This
 
 Most auth tutorials hand you a JWT package and call it done. I wanted to see what production auth actually looks like end-to-end: token rotation with reuse detection, enumeration-safe login, Argon2id instead of bcrypt, a two-tier rate limiter that can swap to Redis later, and an append-only audit trail. Clean architecture felt like the right frame — it forced me to think about where each piece of logic actually belongs.
