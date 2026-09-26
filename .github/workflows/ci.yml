@@ -42,12 +42,7 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test ./... -race -cover -coverprofile=coverage.out
+        run: go test ./... -race
         env:
           DATABASE_URL: postgres://authcore:authcore@localhost:5432/authcore_test?sslmode=disable
 
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: coverage.out
